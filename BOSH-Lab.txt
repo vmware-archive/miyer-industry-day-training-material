@@ -290,8 +290,8 @@ compilation:
 
 **********************CREATE A BOSH RELEASE (BOSH LITE VERSION)
 
-$ bosh create release --force  (optionally - use the --final flag if it is a final release)
-$ bosh upload release
+$ bosh create release --force --tarball=name.tgz (optionally - use the --final flag if it is a final release)
+$ bosh upload release  (or bosh upload-release)
 $ bosh update cloud-config /path/to/cloud/config.yml
 Set the deployment:
 $ bosh deployment /path/to/deployment/manifest.yml
@@ -303,9 +303,9 @@ $  psql -h (vm ip) --username=vcap -d template1
 
 **********************CREATE A BOSH RELEASE (BOSH VERSION)
 
-$ bosh create release --force --with-tarball (optionally - use the --final flag if it is a final release)
+$ bosh create release --force --tarball=name.tgz (optionally - use the --final flag if it is a final release)
 $ scp -i /path/to/pie/opsman/rsa/pie-xx.opsman_rsa ~/dev_releases/my-postgres/my-postgres-0+dev.xx.tgz ubuntu@opsman.pie-xx.cfplatformeng.com:~/tmp
-$ pcf --target pie-xx ssh 
+$ pcf --target pie-xx ssh  [ if pcf not installed, please ssh into the machine the old-fashiioned way]
 $ bosh login (as user: director, password: get it from ops manager ui for your pie slot)
 $ bosh upload release
 Set the deployment:
