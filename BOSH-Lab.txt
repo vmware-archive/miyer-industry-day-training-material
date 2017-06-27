@@ -1,0 +1,316 @@
+**********************Lab: Create a BOSH Release **********************
+
+Requirements:
+-Vagrant
+-Bosh CLI
+-BOSH Lite /Bosh
+
+BOSH Lab: Stub out a PostGreSQL Release
+
+**********************INITIALIZE:
+
+1.	Set the working directory to your home dir
+a.	$ cd ~
+
+2.	Initialize the release
+a.	$ bosh init release my-postgres-release  
+BOSH GO CLI : 
+	cd my-postgres-release
+	bosh init-release
+
+
+
+b.	(Add the --git option to initialize the git repo)
+
+Best Practice: Use - (dash) in the release name, and _ (underscores) in all the files in the release
+
+3.	Let’s review what just happened
+4.	View the directory tree
+a.	cd my-postgres-release
+b.	tree
+
+5.	THEORY detour
+
+**********************CREATE A BOSH JOB:
+
+1.	$ bosh generate job my_pg_server
+BOSH GO CLI : bosh generate-job my_pg_server
+2.	$ tree
+3.	Check the spec and monit files in the created job skeleton.
+4.	$ cat jobs/my_pg_server/spec 
+5.	$ cat jobs/my_pg_server/monit 
+
+**********************CREATE A START SCRIPT:
+
+$ cd jobs/my_pg_server/templates/
+
+$ vim start.erb
+#!/bin/bash -e
+LOG_DIR=/var/vcap/sys/log/my_pg_server
+DATA_DIR=/var/vcap/jobs/my_pg_server/data
+BASE_DIR=/var/vcap/packages/my_pg_pkg
+BINARY_DIR=$BASE_DIR/bin
+if ! test -d $LOG_DIR; then
+  sudo mkdir $LOG_DIR
+  sudo chown -R vcap:vcap $LOG_DIR
+fi
+
+if ! test -d $DATA_DIR; then
+  mkdir $DATA_DIR
+  sudo chown -R vcap:vcap $DATA_DIR
+  sudo chmod 700 $DATA_DIR
+  sudo -u vcap $BINARY_DIR/pg_ctl initdb -D $DATA_DIR -o "--auth=trust"
+  # enable TCP/IP connections
+  sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" $DATA_DIR/postgresql.conf
+  sed -i 's/#port = 5432/port = 5432/g' $DATA_DIR/postgresql.conf
+  echo 'host		all	all	0.0.0.0/0	trust' >>$DATA_DIR/pg_hba.conf
+fi
+sudo -u vcap $BINARY_DIR/pg_ctl start -l $LOG_DIR/server.log -D $DATA_DIR
+
+**********************CREATE A STOP SCRIPT
+
+$ cd jobs/my_pg_server/templates/
+
+$ vim stop.erb
+#!/bin/bash -e
+LOG_DIR=/var/vcap/sys/log/my_pg_server
+DATA_DIR=/var/vcap/jobs/my_pg_server/data
+BASE_DIR=/var/vcap/packages/my_pg_pkg
+BINARY_DIR=$BASE_DIR/bin
+PIDFILE=$DATA_DIR/postmaster.pid
+killall postgres
+
+**********************CREATE A MONIT SCRIPT
+
+$ vim monit 
+
+check process psql
+  with pidfile /var/vcap/jobs/my_pg_server/data/postmaster.pid
+  start program "/var/vcap/jobs/my_pg_server/bin/start" with timeout 600 seconds
+  stop program "/var/vcap/jobs/my_pg_server/bin/stop"
+  group vcap
+
+**********************CREATE A SPEC SCRIPT
+
+$ vim spec
+---
+name: my_pg_server
+templates:
+  start.erb: bin/start
+  stop.erb: bin/stop
+packages:
+- my_pg_pkg
+
+**********************MAKE A DEPENDENCY GRAPH
+
+THEORY detour
+
+**********************CREATE A PACKAGE
+
+Download the required PostGreSQL Source
+$ curl -o postgresql-9.3.5.tar.gz https://ftp.postgresql.org/pub/source/v9.3.5/postgresql-9.3.5.tar.gz
+$ mv postgresql-9.3.5.tar.gz src
+
+NOTE: BOSH will look for the package dependencies under src and blobs 
+
+
+$ bosh generate package my_pg_pkg
+BOSH GO CLI : 
+bosh generate-package my_pg_pkg
+
+$ tree
+$ cd packages/my_pg_pkg
+$ vim spec
+---
+name: my_pg_pkg
+dependencies:
+files:
+- postgresql-9.3.5.tar.gz
+
+EDIT PACKAGING SCRIPT TO COMPILE AND INSTALL THE SOFTWARE
+
+$ cd packages/my_pg_pkg
+$ vim packaging 
+# abort script on any command that exits with a non zero value
+set -e
+
+tar zxvf postgresql-9.3.5.tar.gz
+pushd postgresql-9.3.5
+  # need to run as root?
+  # sudo su -
+  ./configure --prefix=${BOSH_INSTALL_TARGET}
+
+  make
+  make install
+popd
+
+# post-install procedures
+LD_LIBRARY_PATH=/usr/local/pgsql/lib
+export LD_LIBRARY_PATH
+
+
+THEORY DETOUR
+**********************CREATE A BLOB (OPTIONAL)
+
+$ cd config
+$ vim final.yml
+
+final_name: my-postgres
+min_cli_version: 1.5.0.pre.1142
+blobstore:
+ provider: local
+ options:
+  blobstore_path: /tmp/postgres-blobs
+  
+$ vim private.yml (optional for this lab)
+
+blobstore_secret: 'does-not-matter'
+blobstore:
+ local:
+  blobstore_path: /tmp/blobs
+
+
+$ bosh add-blob <path to blob locally> <package name>
+$ bosh upload-blobs 
+(Do not upload blobs for a dev release)
+
+
+**********************CREATE A DEPLOYMENT MANIFEST  (BOSH LITE)
+
+$ mkdir manifests
+
+$ cd manifests
+
+$ vim postgres_lite.yml
+
+name: my_postgres
+director_uuid: {use bosh status to get this value}
+
+releases:
+	- {name: my-postgres, version: latest}
+stemcells:
+	- alias: default
+	  os: ubuntu-trusty
+	  version: latest
+update:
+	canaries: 1
+	max_in_flight: 10
+	canary_watch_time: 1000-30000
+	update_watch_time: 1000-30000
+	instance_groups:
+		- name: my_pg_node
+		  instances: 1
+		  azs: [z1]
+		  jobs:  
+		  	- name: my_pg_server
+		  	  release: my-postgres
+		  vm_type: default
+		  stemcell: default
+		  persistent_disk_type: default
+		  networks:
+		  	- name: default
+		  	
+		  	
+**********************CREATE A DEPLOYMENT MANIFEST  (BOSH)		  	
+	  
+
+$ cd manifests
+
+$ vim postgres.yml
+
+name: my_postgres
+director_uuid: {use bosh status to get this value}
+
+releases:
+	- {name: my-postgres, version: latest}
+stemcells:
+	- alias: bosh-google-kvm-ubuntu-trusty-go_agent
+	  os: ubuntu-trusty
+	  version: latest
+update:
+	canaries: 1
+	max_in_flight: 10
+	canary_watch_time: 1000-30000
+	update_watch_time: 1000-30000
+	instance_groups:
+		- name:postgresql_server_node
+		  instances: 1
+		  azs:[{use the az name}]
+		  jobs:  
+		  	- name: my_pg_server
+		  	  release: my-postgres
+		  vm_type: xlarge.disk
+		  cloud_properties:
+		  	tags:
+		  		- allow-ssh
+		  stemcell: bosh-google-kvm-ubuntu-trusty-go_agent
+		  persistent_disk_type:'307200'
+		  networks:
+		  	- name: {use the services network name}
+		  	
+		  	
+**********************CREATE A BOSH (LITE) CLOUD CONFIG
+
+$ cd manifests
+$ vim bosh_lite_cloud_config.yml
+
+azs:
+  - name: z1
+    cloud_properties: {}
+  - name: z2
+    cloud_properties: {}
+
+vm_types:
+- name: default
+  cloud_properties: {}
+
+disk_types:
+- name: default
+  disk_size: 3000
+  cloud_properties: {}
+
+networks:
+- name: default
+  type: manual
+  subnets:
+    - range: 10.244.0.0/24
+      reserved:
+        - 10.244.0.1
+      static: [10.244.0.2-10.244.0.6]
+      cloud_properties: {}
+      az: z1
+
+compilation:
+  workers: 5
+  vm_type: default
+  network: default
+  reuse_compilation_vms: true
+  az: z1
+
+**********************CREATE A BOSH RELEASE (BOSH LITE VERSION)
+
+$ bosh create release --force  (optionally - use the --final flag if it is a final release)
+$ bosh upload release
+$ bosh update cloud-config /path/to/cloud/config.yml
+Set the deployment:
+$ bosh deployment /path/to/deployment/manifest.yml
+$ bosh deploy
+Make sure psql is installed: 
+Confirm that postgres is up and listening:sudo apt-get install postgresql-client
+$  psql -h (vm ip) --username=vcap -d template1
+
+
+**********************CREATE A BOSH RELEASE (BOSH VERSION)
+
+$ bosh create release --force --with-tarball (optionally - use the --final flag if it is a final release)
+$ scp -i /path/to/pie/opsman/rsa/pie-xx.opsman_rsa ~/dev_releases/my-postgres/my-postgres-0+dev.xx.tgz ubuntu@opsman.pie-xx.cfplatformeng.com:~/tmp
+$ pcf --target pie-xx ssh 
+$ bosh login (as user: director, password: get it from ops manager ui for your pie slot)
+$ bosh upload release
+Set the deployment:
+$ bosh deployment /path/to/deployment/manifest.yml
+$ bosh deploy
+Confirm that postgres is up and listening:sudo apt-get install postgresql-client
+$  psql -h (vm ip) --username=vcap -d template1
+
+

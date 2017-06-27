@@ -1,0 +1,118 @@
+Service Broker Lab
+Part 1: Catalog / Marketplace
+
+0. Create your unique org and space in the pie-env
+
+cf org <name>
+cf target -o <org-name>
+
+cf space <name>
+cf target -s <space-name>
+
+
+1. Get the code. Download and extract the zip file containing the
+service broker (code and build) from our slack channel. This broker
+is implemented with Spring Boot and leverages the Spring Cloud
+Service Broker project and the Simple Service Broker Framework/
+
+git clone https://github.com/cf-platform-eng/my-postgres-broker.git
+
+
+2. Catalog (GET v2/catalog). Simple Service Broker has mapped
+the /v2/catalog endpoint for us.To see the implementation, open:
+    src/main/java/org/resources/catalog.json
+In particular, notice the id, name for the services and the plans
+environment variables are used in the catalog configuration.
+
+3. Change the values for the id's and the names to something unique:
+my-postgres-broker/src/main/resources/catalog.json
+
+
+4. Navigate to the level of the pom.xml
+mvn clean install -DskipTests
+
+5. Crack open the manifest.yml
+
+Add in the appropriate values for POSTGREST_HOST (external IPs),
+POSTGRES_USER (vcap), POSTGRES_PASSWORD (pivotal123), SECURITY_USER_NAME 
+and SECURITY_USER_PASSWORD
+
+6. Create a redis service that matches the name of the service you entered in 
+the manifest.yml
+cf cs <service name> <plan name> <your unique service name>
+
+7. Deploy your service broker. Deploy the service broker as a Cloud
+Foundry application with the following commands. Be sure to sub in
+your name for LASTNAME in the commands.
+    cd <path-to>/cloudfoundry-postgres-service-broker
+    Option 1:
+    
+    Simply do : cf push 
+    
+    OR 
+    
+    cf push postgres-service-broker-lastname -p target/postgres.jar -m 512M --random-route
+    
+( explicitly start if you added "--no-start" flag in the previous command:
+    cf start postgres-service-broker-lastname
+)
+
+
+8. View the catalog endpoint. Run:
+    cf apps
+    
+to verify your service broker app running. Grab its URL from the last
+column. Append /v2/catalog to the URL, so the full url looks like:
+    https://<random-words>.cfapps.pie-<XX>.cfplatformeng.com/v2/catalog
+
+
+
+9. Register your service broker. We will register the service broker
+as space-scoped, which keeps it private to your space. Register your
+service broker with:
+    cf create-service-broker postgres-service-broker-LASTNAME username secretpassword
+    <URL> --space-scoped
+
+View the service broker with the command:
+    cf service-brokers
+
+View the service access with:
+    cf service-access
+    
+
+Enable service access with:
+    cf enable-service-access -o (orgname) (name of broker)
+    
+OR    
+
+  cf enable-service-access (name of broker)
+  
+For enabling access to all orgs 
+
+  
+Note what the service access is set to,since it is a space-scoped
+service broker. Verify that your service is listed in the
+marketplace:
+    cf marketplace
+
+
+
+Part 2: Provisioning and Binding
+1. Provision/Deprovision (/v2/service_instances/:instance_id). View
+the file: PostgresBroker.java
+
+The function createServiceInstance provisions a Postgres database. The
+function deleteServiceInstance deprovisions a Postgres database. The
+service broker tracks the provisioned Postgres databases in its own
+repository.
+
+
+2. Bind/Unbind
+(/v2/service_instances/:instance_id/service_bindings/:binding_id).
+View the file: PostgresBroker.java
+
+The function createBinding creates a unique set of
+credentials for the binding. The function
+deleteBinding deletes the credentials for the binding.
+The service broker tracks the binding in its own repository.
+
