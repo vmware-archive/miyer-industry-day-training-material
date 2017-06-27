@@ -2,7 +2,8 @@
 
 Requirements:
 -Vagrant
--Bosh CLI
+-Bosh CLI 
+(If old BOSH cli is installed, uninstall it with : gem uninstall bosh_cli , Install from here: https://bosh.io/docs/cli-v2.html#install) 
 -BOSH Lite /Bosh
 
 BOSH Lab: Stub out a PostGreSQL Release
